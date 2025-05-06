@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      .container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+      }
+
+      .chart-container {
+        width: 45%;
+        min-width: 400px;
+      }
+
+      .input-section {
+        margin-bottom: 20px;
+      }
+
+      .prediction-container {
+        margin-top: 20px;
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+
+      th,
+      td {
+        border: 1px solid #ddd;
+        padding: 8px;
+        text-align: center;
+      }
+
+      th {
+        background-color: #f2f2f2;
+      }
+
+      button {
+        padding: 8px 16px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        cursor: pointer;
+        margin-top: 10px;
+        border-radius: 10px;
+      }
+
+      button:hover {
+        background-color: #45a049;
+      }
+
+      .form-group {
+        margin-bottom: 10px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 5px;
+      }
+
+      input {
+        padding: 8px;
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      h2 {
+        text-align: center;
+      }
+    </style>
+
+    <title>Prediccion con TensorFlow</title>
+  </head>
+  <body>
+    <h1>REGRESION LINEAL SIMPLE CON TENSORFLOW Y FLASK</h1>
+
+    <div class="input-section">
+      <h2>Entrenar el Modelo</h2>
+      <div class="form-gruop">
+        <label for="training-data">Datos de entrenamiento</label>
+        <textarea id="training-data" style="width: 100%" rows="5">
+          1,2
+          2,3
+          3,4
+          4,5
+          5,6
+        </textarea>
+      </div>
+      <div class="form-group">
+        <label for="epochs">Numero de epocas</label>
+        <input type="number" id="epochs" value="100" min="1" />
+      </div>
+      <button onclick="trainModel()">Entrenar Modelo</button>
+    </div>
+
+    <div class="container">
+      <div class="chart-container">
+        <h2>Datos y Linea de regresion</h2>
+        <canvas id="regressionChart"> </canvas>
+      </div>
+      <div class="chart-container">
+        <h2>Historial de perdida</h2>
+        <canvas id="lossChart"></canvas>
+      </div>
+    </div>
+
+    <div class="prediction-container">
+      <h2>Predicciones de multiples valores</h2>
+      <div class="form-group">
+        <label for="prediction-values"
+          >Valores para predicir (separados por coma)</label
+        >
+        <input type="text" id="prediction-values" value="1.5, 2.5, 3.5, 4.5" />
+      </div>
+      <button onclick="predict()">Predecir</button>
+    </div>
+
+    <div style="margin-top: 20px">
+      <h2>Resultados de la prediccion</h2>
+      <table id="predictions-table">
+        <thead>
+          <tr>
+            <th>Valor x</th>
+            <th>Prediccion</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Aqui van las preddiciones -->
+        </tbody>
+      </table>
+    </div>
+
+    <script>
+      let regressionChart;
+      let lossChart;
+      let trainedModel = {
+        weights: 0,
+        bias: 0,
+      };
+
+      function initCharts() {
+        const regressionCtx = document
+          .getElementById("regressionChart")
+          .getContext("2d");
+
+        regressionChart = new Chart(regressionCtx, {
+          type: "scatter",
+          data: {
+            datasets: [
+              {
+                label: "Datos de entrenamiento",
+                data: [],
+                backgroundColor: "rgba(75, 192, 192, 0.6)",
+                pointRadius: 6,
+              },
+              {
+                label: "Línea de regresión",
+                data: [],
+                borderColor: "rgba(255, 99, 132, 1)",
+                backgroundColor: "rgba(255, 99, 132, 0.2)",
+                pointRadius: 0,
+                fill: false,
+                type: "line",
+                tension: 0,
+              },
+              {
+                label: "Predicciones",
+                data: [],
+                backgroundColor: "rgba(255, 159, 64, 0.6)",
+                pointRadius: 6,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "X",
+                },
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: "Y",
+                },
+              },
+            },
+          },
+        });
+
+        const lossCtx = document.getElementById("lossChart").getContext("2d");
+        lossChart = new Chart(lossCtx, {
+          type: "line",
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: "Pérdida (MSE)",
+                data: [],
+                borderColor: "rgba(54, 162, 235, 1)",
+                backgroundColor: "rgba(54, 162, 235, 0.2)",
+                fill: true,
+                tension: 0.1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "Época",
+                },
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: "Pérdida (MSE)",
+                },
+              },
+            },
+          },
+        });
+      }
+
+      async function trainModel() {
+        const trainingDataText = document.getElementById("training-data").value;
+        const epochs = parseInt(document.getElementById("epochs").value);
+        const trainingData = trainingDataText
+          .trim()
+          .split("\n")
+          .map((line) => {
+            const [x, y] = line.split(",");
+            return { x: parseFloat(x), y: parseFloat(y) };
+          });
+
+        const x_values = trainingData.map((d) => d.x);
+        const y_values = trainingData.map((d) => d.y);
+
+        try {
+          const response = await fetch("/train", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              x: x_values,
+              y: y_values,
+              epochs: epochs,
+            }),
+          });
+
+          const result = await response.json();
+
+          if (result.status === "success") {
+            trainedModel.weights = result.weights;
+            trainedModel.bias = result.bias;
+
+            updateRegressionChart(x_values, y_values);
+            updateLossChart(result.loss_history);
+            alert("Modelo entrenado con éxito");
+          } else {
+            alert("Error al entrenar el modelo");
+          }
+        } catch (error) {
+          console.error("Error: ", error);
+          alert("Se produjo un error en el sistema");
+        }
+      }
+
+      function updateRegressionChart(xValues, yValues) {
+        const trainingData = xValues.map((x, i) => ({
+          x,
+          y: yValues[i],
+        }));
+        const minX = Math.min(...xValues);
+        const maxX = Math.max(...xValues);
+        const padding = (maxX - minX) * 0.2;
+
+        const lineX = [minX - padding, maxX + padding];
+        const lineY = lineX.map(
+          (x) => x * trainedModel.weights + trainedModel.bias
+        );
+
+        const lineData = lineX.map((x, i) => ({
+          x,
+          y: lineY[i],
+        }));
+
+        regressionChart.data.datasets[0].data = trainingData;
+        regressionChart.data.datasets[1].data = lineData;
+        regressionChart.update();
+      }
+
+      function updateLossChart(lossHistory) {
+        const labels = Array.from(
+          { length: lossHistory.length },
+          (_, i) => i + 1
+        );
+        lossChart.data.labels = labels;
+        lossChart.data.datasets[0].data = lossHistory;
+        lossChart.update();
+      }
+
+      async function predict() {
+        const predictValues = document
+          .getElementById("prediction-values")
+          .value.split(",")
+          .map((x) => parseFloat(x.trim()));
+
+        try {
+          const response = await fetch("/predict", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              x_values: predictValues,
+            }),
+          });
+
+          const result = await response.json();
+
+          if (result.status === "success") {
+            displayPredictionResults(result.x_values, result.predictions);
+
+            const predictionPoints = result.x_values.map((x, i) => ({
+              x,
+              y: result.predictions[i],
+            }));
+
+            regressionChart.data.datasets[2].data = predictionPoints;
+            regressionChart.update();
+          } else {
+            alert("Se produjo un error al realizar la predicción");
+          }
+        } catch (error) {
+          console.error("Error: ", error);
+          alert("Se produjo un error en el servidor");
+        }
+      }
+
+      function displayPredictionResults(xValues, predictions) {
+        const tbody = document.querySelector("#predictions-table tbody");
+        tbody.innerHTML = "";
+
+        xValues.forEach((x, i) => {
+          const row = document.createElement("tr");
+          const xCell = document.createElement("td");
+          const yCell = document.createElement("td");
+
+          xCell.textContent = x.toFixed(4);
+          yCell.textContent = predictions[i].toFixed(4);
+          row.appendChild(xCell);
+          row.appendChild(yCell);
+          tbody.appendChild(row);
+        });
+      }
+
+      document.addEventListener("DOMContentLoaded", initCharts);
+    </script>
+  </body>
+</html>
