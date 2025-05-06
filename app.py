@@ -79,7 +79,7 @@ def predict():
     return jsonify({
         'status': 'success',
         'predictions': predictions,
-        'x_values': x_values.tolist()  # ✅ conversión importante
+        'x_values': x_values.tolist() 
     })
 
 @app.route('/loss_history', methods=['GET'])
